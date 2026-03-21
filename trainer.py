@@ -17,6 +17,8 @@ def run_training(dataset_name='CIFAR10', model_name='resnet18', epochs=5, batch_
 
     # 1. 动态选择数据集 (CIFAR10 或 CIFAR100)
     transform = transforms.Compose([
+        transforms.RandomCrop(32, padding=4), # 随机裁剪
+        transforms.RandomHorizontalFlip(),    # 随机水平翻转
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
