@@ -1,0 +1,22 @@
+Experiment Configuration:
+{'dataset': 'CIFAR10', 'model': 'resnet34', 'lr': 0.0005, 'batch_size': 128, 'epochs': 5}
+
+Final Accuracy: 71.68%
+
+Classification Report:
+              precision    recall  f1-score   support
+
+       plane     0.7257    0.7750    0.7495      1000
+         car     0.8112    0.8250    0.8180      1000
+        bird     0.6497    0.5600    0.6015      1000
+         cat     0.5690    0.5400    0.5541      1000
+        deer     0.6796    0.6320    0.6549      1000
+         dog     0.6158    0.6220    0.6189      1000
+        frog     0.7190    0.8420    0.7757      1000
+       horse     0.7879    0.7280    0.7568      1000
+        ship     0.8041    0.8700    0.8357      1000
+       truck     0.7842    0.7740    0.7791      1000
+
+    accuracy                         0.7168     10000
+   macro avg     0.7146    0.7168    0.7144     10000
+weighted avg     0.7146    0.7168    0.7144     10000

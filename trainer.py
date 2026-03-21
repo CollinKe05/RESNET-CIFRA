@@ -1,86 +1,122 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
+from sklearn.metrics import classification_report
+from tqdm import tqdm
 
-def run_training(dataset_name='CIFAR10', model_name='resnet18', epochs=5, batch_size=64, lr=0.001):
-    """
-    核心训练框架
-    """
+def run_training(config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("\n" + "="*40)
-    print(f"🚀 启动实验 | 模型: {model_name} | 数据集: {dataset_name}")
-    print(f"⚙️ 超参数 | Epochs: {epochs} | Batch: {batch_size} | LR: {lr}")
-    print("="*40)
+    
+    # 1. 解析超参数
+    dataset_name = config.get('dataset', 'CIFAR10')
+    model_name = config.get('model', 'resnet18')
+    epochs = config.get('epochs', 10)
+    batch_size = config.get('batch_size', 128)
+    lr = config.get('lr', 0.001)
 
-    # 1. 动态选择数据集 (CIFAR10 或 CIFAR100)
-    transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4), # 随机裁剪
-        transforms.RandomHorizontalFlip(),    # 随机水平翻转
+    # 🚀 核心：自动生成标准化的实验名称
+    exp_name = f"{dataset_name}_{model_name}_ep{epochs}_bs{batch_size}_lr{lr}"
+
+    print("\n" + "="*60)
+    print(f"🚀 开始执行: {exp_name}")
+    print("="*60)
+
+    # 2. 数据处理与加载
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    ])
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
     
     if dataset_name == 'CIFAR10':
-        trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-        testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+        trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+        testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
         num_classes = 10
-    elif dataset_name == 'CIFAR100':
-        trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
-        testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
-        num_classes = 100
+        target_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
     else:
-        raise ValueError("目前只支持 CIFAR10 或 CIFAR100 哦！")
+        trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
+        testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+        num_classes = 100
+        target_names = [str(i) for i in range(100)]
 
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    # 2. 动态召唤模型 (resnet18, resnet34 等)
-    # getattr 可以根据字符串名字，直接从 models 库里把对应的模型抓出来
+    # 3. 模型与优化器
     model_class = getattr(models, model_name)
     model = model_class(weights=None)
-    
-    # 修改最后一层以匹配数据集的类别数
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, num_classes)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(device)
 
-    # 3. 设置优化器和损失函数
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scaler = torch.amp.GradScaler('cuda')
+
+    epoch_losses = []
 
     # 4. 训练循环
     for epoch in range(epochs):
+        model.train()
         running_loss = 0.0
-        for i, data in enumerate(trainloader, 0):
-            inputs, labels = data
+        pbar = tqdm(trainloader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
+        for inputs, labels in pbar:
             inputs, labels = inputs.to(device), labels.to(device)
-
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            
+            with torch.amp.autocast('cuda'):
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item()
-            if i % 200 == 199: # 每 200 批次打印一次，让终端清爽点
-                print(f'[Epoch {epoch + 1}, Batch {i + 1}] Loss: {running_loss / 200:.3f}')
-                running_loss = 0.0
+            pbar.set_postfix({'Loss': f"{loss.item():.4f}"})
+            
+        scheduler.step()
+        epoch_losses.append(running_loss / len(trainloader))
 
-    # 5. 测试评估
-    correct = 0
-    total = 0
+    # 5. 测试与评估
+    model.eval()
+    all_preds, all_targets = [], []
     with torch.no_grad():
-        for data in testloader:
-            inputs, labels = data
+        for inputs, labels in testloader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            all_preds.extend(predicted.cpu().numpy())
+            all_targets.extend(labels.cpu().numpy())
 
-    acc = 100 * correct / total
-    print(f'🏆 最终测试集准确率: {acc:.2f} %\n')
-    return acc
+    report = classification_report(all_targets, all_preds, target_names=target_names, digits=4)
+    acc = sum(1 for p, t in zip(all_preds, all_targets) if p == t) / len(all_targets) * 100
+
+    # ==========================================
+    # 💾 核心新增：自动化硬盘 I/O (保存权重与日志)
+    # ==========================================
+    # 保存网络参数权重
+    weight_path = f"result/weights/{exp_name}.pth"
+    torch.save(model.state_dict(), weight_path)
+    
+    # 保存完整的测试报告 txt
+    log_path = f"result/log/{exp_name}.txt"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"Experiment Configuration:\n{config}\n\n")
+        f.write(f"Final Accuracy: {acc:.2f}%\n\n")
+        f.write("Classification Report:\n")
+        f.write(report)
+
+    print(f"✅ 权重已保存至: {weight_path}")
+    print(f"✅ 日志已保存至: {log_path}")
+    
+    return exp_name, epoch_losses, acc
