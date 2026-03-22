@@ -54,7 +54,7 @@ def run_training(config):
     # 3. 模型与优化器
     model_class = getattr(models, model_name)
     #是否使用预训练权重
-    model = model_class(weights=None)
+    model = model_class(weights='DEFAULT')
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(device)
 
