@@ -17,11 +17,11 @@ if __name__ == '__main__':
     # 2. 定义网格搜索空间
     # ==========================================
     param_grid = {
-        'dataset': ['CIFAR10'],
-        'model': ['resnet18', 'resnet34'],
-        'lr': [0.0005,0.001, 0.01, 0.1],
+        'dataset': ['CIFAR100'],
+        'model': ['resnet18'],
+        'lr': [0.001],
         'batch_size': [128],
-        'epochs': [5, 50, 100]  # 测试先跑5个epoch，后续再增加到50和100
+        'epochs': [50]  # 测试先跑5个epoch，后续再增加到50和100
     }
 
     keys = param_grid.keys()

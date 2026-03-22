@@ -53,6 +53,7 @@ def run_training(config):
 
     # 3. 模型与优化器
     model_class = getattr(models, model_name)
+    #是否使用预训练权重
     model = model_class(weights=None)
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(device)
@@ -87,6 +88,15 @@ def run_training(config):
         scheduler.step()
         epoch_losses.append(running_loss / len(trainloader))
 
+        # ==========================================
+        # 💾 新增：Checkpoint 阶段性存档机制
+        # ==========================================
+        # 每隔 10 轮（或者你觉得合适的轮数），存一次当前状态
+        if (epoch + 1) % 10 == 0:
+            ckpt_path = f"result/weights/{exp_name}_epoch{epoch+1}.pth"
+            torch.save(model.state_dict(), ckpt_path)
+            # tqdm 的 write 方法可以在不打断进度条的情况下打印信息
+            tqdm.write(f"💾 自动存档: 已保存第 {epoch+1} 轮权重至 {ckpt_path}")
     # 5. 测试与评估
     model.eval()
     all_preds, all_targets = [], []
